@@ -61,7 +61,8 @@ export default function Dashboard() {
   }, []);
 
   return (
-    <div className="p-4 pt-6 animate-in fade-in duration-500 pb-24 max-w-md mx-auto">
+    <div className="min-h-screen bg-stone-50 p-4 pt-6 animate-in fade-in duration-500 pb-24">
+    <div className="max-w-md mx-auto">
       
       {/* Global Mode Toggle */}
       <div className="flex flex-col items-center mb-8">
@@ -82,20 +83,32 @@ export default function Dashboard() {
             </div>
             
             {loading ? (
-              <div className="flex justify-center py-8"><Loader2 className="animate-spin text-emerald-500" /></div>
+              <div className="flex justify-center py-8">
+                <Loader2 className="animate-spin text-green-700" />
+              </div>
             ) : (
-              <div className="flex justify-between items-center bg-slate-50 p-4 rounded-xl">
-                <div className="text-center w-1/3">
-                  <p className="text-xs text-slate-500 font-medium uppercase mb-1 line-clamp-1">Dyshant & Harshal</p>
-                  <p className="text-3xl font-black text-slate-800">{team1Wins}</p>
-                  <p className="text-[10px] text-slate-400 uppercase tracking-wide mt-1">Wins</p>
+              <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-stone-100 shadow-sm">
+                
+                {/* Team 1 - Removed w-1/3, added flex-1 and leading-tight */}
+                <div className="text-center flex-1 px-1">
+                  <p className="text-[10px] text-stone-500 font-bold uppercase mb-1 leading-tight">
+                    Dyshant &<br/>Harshal
+                  </p>
+                  <p className="text-3xl font-black text-stone-800">{team1Wins}</p>
+                  <p className="text-[10px] text-stone-400 uppercase tracking-wide mt-1">Wins</p>
                 </div>
-                <div className="text-xl font-bold text-slate-300">VS</div>
-                <div className="text-center w-1/3">
-                  <p className="text-xs text-slate-500 font-medium uppercase mb-1 line-clamp-1">Anuj & Michael</p>
-                  <p className="text-3xl font-black text-slate-800">{team2Wins}</p>
-                  <p className="text-[10px] text-slate-400 uppercase tracking-wide mt-1">Wins</p>
+                
+                <div className="text-lg font-black text-stone-200 px-2">VS</div>
+                
+                {/* Team 2 - Removed w-1/3, added flex-1 and leading-tight */}
+                <div className="text-center flex-1 px-1">
+                  <p className="text-[10px] text-stone-500 font-bold uppercase mb-1 leading-tight">
+                    Anuj &<br/>Michael
+                  </p>
+                  <p className="text-3xl font-black text-stone-800">{team2Wins}</p>
+                  <p className="text-[10px] text-stone-400 uppercase tracking-wide mt-1">Wins</p>
                 </div>
+                
               </div>
             )}
           </div>
@@ -170,6 +183,7 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }
