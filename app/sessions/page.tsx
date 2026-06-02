@@ -223,10 +223,10 @@ export default function SessionsPage() {
                 <div className="text-[10px] font-bold text-slate-800 uppercase tracking-wide text-center">Dyshant</div>
 
                 {[
-                  { id: "drives", label: "Drives", icon: <Navigation size={14} className="text-blue-500" /> },
-                  { id: "approaches", label: "Approach", icon: <Crosshair size={14} className="text-emerald-500" /> },
-                  { id: "chips", label: "Chips", icon: <Target size={14} className="text-amber-500" /> },
-                  { id: "putts", label: "Putts", icon: <Flag size={14} className="text-purple-500" /> },
+                  { id: "drives", label: "Drives", icon: <Navigation size={14} className="text-amber-600" /> },
+                  { id: "approaches", label: "Approach", icon: <Crosshair size={14} className="text-green-800" /> },
+                  { id: "chips", label: "Chips", icon: <Target size={14} className="text-stone-500" /> },
+                  { id: "putts", label: "Putts", icon: <Flag size={14} className="text-yellow-500" /> },
                 ].map((cat) => (
                   <React.Fragment key={cat.id}>
                     <div className="flex items-center gap-2">

@@ -68,10 +68,10 @@ export default function PlayersPage() {
   };
 
   const statCategories = [
-    { id: "drives", label: "Drives", icon: <Navigation size={16} className="text-blue-500" />, color: "bg-blue-500" },
-    { id: "approaches", label: "Approach", icon: <Crosshair size={16} className="text-emerald-500" />, color: "bg-emerald-500" },
-    { id: "chips", label: "Short Game", icon: <Target size={16} className="text-amber-500" />, color: "bg-amber-500" },
-    { id: "putts", label: "Putting", icon: <Flag size={16} className="text-purple-500" />, color: "bg-purple-500" },
+    { id: "drives", label: "Drives", icon: <Navigation size={16} className="text-amber-600" />, color: "bg-amber-600" },
+    { id: "approaches", label: "Approach", icon: <Crosshair size={16} className="text-green-800" />, color: "bg-green-800" },
+    { id: "chips", label: "Short Game", icon: <Target size={16} className="text-stone-500" />, color: "bg-stone-500" },
+    { id: "putts", label: "Putting", icon: <Flag size={16} className="text-yellow-500" />, color: "bg-yellow-500" },
   ];
 
   return (
