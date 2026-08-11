@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import React from "react";
-import { Calendar, MapPin, CheckCircle, Loader2, Target, Crosshair, Flag, Navigation, Lock, Unlock, ArrowLeft, ChevronLeft, ChevronRight, Minus, Plus, RotateCcw, Users } from "lucide-react";
+import { Calendar, MapPin, CheckCircle, Loader2, Target, Crosshair, Flag, Navigation, Lock, Unlock, ArrowLeft, ChevronLeft, ChevronRight, Minus, Plus, RotateCcw, Users, Hash } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 
@@ -14,14 +14,19 @@ const ADMIN_PASSWORD = "hpatel4296";
 
 type PlayerID = "P1" | "P2";
 
+interface TeamHoleData {
+  score: number;
+  penalties: number;
+  d: PlayerID[];
+  a: PlayerID[];
+  p: PlayerID[];
+}
+
 interface ScrambleHoleData {
   hole: number;
   par: number;
-  score: number;
-  d: PlayerID[];
-  a: PlayerID[];
-  c: PlayerID[];
-  p: PlayerID[];
+  team1: TeamHoleData;
+  team2: TeamHoleData;
 }
 
 export default function ScrambleSessionPage() {
@@ -31,33 +36,43 @@ export default function ScrambleSessionPage() {
   const [passwordAttempt, setPasswordAttempt] = useState("");
   const [passwordError, setPasswordError] = useState(false);
 
-  // General Match Info
+  const [availablePlayers, setAvailablePlayers] = useState(["Harshal", "Dyshant", "Anuj", "Michael"]);
+  
   const [courseName, setCourseName] = useState("");
   const [roundDate, setRoundDate] = useState("");
+  const [roundType, setRoundType] = useState<"9" | "18">("18");
+
   const [par, setPar] = useState("");
   const [teeColor, setTeeColor] = useState("Blue");
   const [totalDistance, setTotalDistance] = useState("");
+  
   const [winningTeam, setWinningTeam] = useState("");
-  const [winnerScore, setWinnerScore] = useState("");
-  const [loserScore, setLoserScore] = useState("");
 
-  // Team Setup
-  const [player1, setPlayer1] = useState("Dyshant");
-  const [player2, setPlayer2] = useState("Harshal");
+  // Team 1
+  const [t1p1, setT1p1] = useState("Dyshant");
+  const [t1p2, setT1p2] = useState("Harshal");
+  
+  // Team 2
+  const [t2p1, setT2p1] = useState("Anuj");
+  const [t2p2, setT2p2] = useState("Michael");
 
-  // Hole-by-Hole State
+  const [activeTeam, setActiveTeam] = useState<"team1" | "team2">("team1");
   const [currentHole, setCurrentHole] = useState(1);
+  
   const [holes, setHoles] = useState<ScrambleHoleData[]>(
     Array.from({ length: 18 }, (_, i) => ({
       hole: i + 1,
       par: 4,
-      score: 4,
-      d: [],
-      a: [],
-      c: [],
-      p: [],
+      team1: { score: 0, penalties: 0, d: [], a: [], p: [] },
+      team2: { score: 0, penalties: 0, d: [], a: [], p: [] },
     }))
   );
+
+  const maxHoles = roundType === "9" ? 9 : 18;
+  const activeHoles = holes.slice(0, maxHoles);
+  
+  const team1TotalScore = activeHoles.reduce((acc, h) => acc + h.team1.score, 0);
+  const team2TotalScore = activeHoles.reduce((acc, h) => acc + h.team2.score, 0);
 
   const [suggestions, setSuggestions] = useState<string[]>([]);
 
@@ -77,55 +92,86 @@ export default function ScrambleSessionPage() {
     else { setPasswordError(true); setPasswordAttempt(""); }
   };
 
-  // Stepper Helpers
-  const adjustScore = (field: "par" | "score", amount: number, min: number = 1) => {
+  const adjustPar = (amount: number, min: number = 3) => {
     const newHoles = [...holes];
-    const currentValue = newHoles[currentHole - 1][field];
-    newHoles[currentHole - 1][field] = Math.max(min, currentValue + amount);
+    newHoles[currentHole - 1].par = Math.max(min, newHoles[currentHole - 1].par + amount);
     setHoles(newHoles);
   };
 
-  // Shot Array Helpers
-  const addShot = (category: "d" | "a" | "c" | "p", player: PlayerID) => {
+  const adjustScore = (field: "score" | "penalties", amount: number, min: number = 0) => {
     const newHoles = [...holes];
-    newHoles[currentHole - 1][category].push(player);
+    const current = newHoles[currentHole - 1][activeTeam][field];
+    
+    let next = current + amount;
+    if (field === "score" && current === 0 && amount > 0) {
+      next = newHoles[currentHole - 1].par; // Jump to par on first click
+    }
+    
+    newHoles[currentHole - 1][activeTeam][field] = Math.max(min, next);
     setHoles(newHoles);
   };
 
-  const undoShot = (category: "d" | "a" | "c" | "p") => {
+  const addShot = (category: "d" | "a" | "p", player: PlayerID) => {
     const newHoles = [...holes];
-    newHoles[currentHole - 1][category].pop();
+    newHoles[currentHole - 1][activeTeam][category].push(player);
     setHoles(newHoles);
   };
+
+  const undoShot = (category: "d" | "a" | "p") => {
+    const newHoles = [...holes];
+    newHoles[currentHole - 1][activeTeam][category].pop();
+    setHoles(newHoles);
+  };
+
+  const activeData = holes[currentHole - 1];
+  const activeTeamData = activeData[activeTeam];
+  const isReadyToSave = activeHoles.every(h => h.team1.score > 0 && h.team2.score > 0);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isReadyToSave) return;
     setLoading(true);
 
-    // Calculate the aggregate totals for the old charts
-    const p1Stats = {
-      drives: holes.reduce((acc, h) => acc + h.d.filter((p) => p === "P1").length, 0),
-      approaches: holes.reduce((acc, h) => acc + h.a.filter((p) => p === "P1").length, 0),
-      chips: holes.reduce((acc, h) => acc + h.c.filter((p) => p === "P1").length, 0),
-      putts: holes.reduce((acc, h) => acc + h.p.filter((p) => p === "P1").length, 0),
+    const winnerScore = Math.min(team1TotalScore, team2TotalScore);
+    const loserScore = Math.max(team1TotalScore, team2TotalScore);
+
+    // Team 1 Payload
+    const t1p1Stats = {
+      drives: activeHoles.reduce((acc, h) => acc + h.team1.d.filter((p) => p === "P1").length, 0),
+      approaches: activeHoles.reduce((acc, h) => acc + h.team1.a.filter((p) => p === "P1").length, 0),
+      putts: activeHoles.reduce((acc, h) => acc + h.team1.p.filter((p) => p === "P1").length, 0),
+    };
+    const t1p2Stats = {
+      drives: activeHoles.reduce((acc, h) => acc + h.team1.d.filter((p) => p === "P2").length, 0),
+      approaches: activeHoles.reduce((acc, h) => acc + h.team1.a.filter((p) => p === "P2").length, 0),
+      putts: activeHoles.reduce((acc, h) => acc + h.team1.p.filter((p) => p === "P2").length, 0),
     };
 
-    const p2Stats = {
-      drives: holes.reduce((acc, h) => acc + h.d.filter((p) => p === "P2").length, 0),
-      approaches: holes.reduce((acc, h) => acc + h.a.filter((p) => p === "P2").length, 0),
-      chips: holes.reduce((acc, h) => acc + h.c.filter((p) => p === "P2").length, 0),
-      putts: holes.reduce((acc, h) => acc + h.p.filter((p) => p === "P2").length, 0),
+    // Team 2 Payload
+    const t2p1Stats = {
+      drives: activeHoles.reduce((acc, h) => acc + h.team2.d.filter((p) => p === "P1").length, 0),
+      approaches: activeHoles.reduce((acc, h) => acc + h.team2.a.filter((p) => p === "P1").length, 0),
+      putts: activeHoles.reduce((acc, h) => acc + h.team2.p.filter((p) => p === "P1").length, 0),
+    };
+    const t2p2Stats = {
+      drives: activeHoles.reduce((acc, h) => acc + h.team2.d.filter((p) => p === "P2").length, 0),
+      approaches: activeHoles.reduce((acc, h) => acc + h.team2.a.filter((p) => p === "P2").length, 0),
+      putts: activeHoles.reduce((acc, h) => acc + h.team2.p.filter((p) => p === "P2").length, 0),
     };
 
-    const { error } = await supabase.from("sessions").insert([{
+    // Save 2 separate records so analytics parse automatically
+    const { error } = await supabase.from("sessions").insert([
+      {
         course_name: courseName, round_date: roundDate, type: "scramble", par: parseInt(par), tee_color: teeColor, total_distance: parseInt(totalDistance),
-        winning_team: winningTeam, score: parseInt(winnerScore), loser_score: parseInt(loserScore),
-        shot_contributions: {
-          [player1]: p1Stats,
-          [player2]: p2Stats,
-          matrix: holes.map(h => ({ hole: h.hole, d: h.d, a: h.a, c: h.c, p: h.p }))
-        }
-      }]);
+        winning_team: winningTeam, score: winnerScore, loser_score: loserScore,
+        shot_contributions: { [t1p1]: t1p1Stats, [t1p2]: t1p2Stats, matrix: activeHoles.map(h => ({ hole: h.hole, d: h.team1.d, a: h.team1.a, p: h.team1.p, penalties: h.team1.penalties })) }
+      },
+      {
+        course_name: courseName, round_date: roundDate, type: "scramble", par: parseInt(par), tee_color: teeColor, total_distance: parseInt(totalDistance),
+        winning_team: winningTeam, score: winnerScore, loser_score: loserScore,
+        shot_contributions: { [t2p1]: t2p1Stats, [t2p2]: t2p2Stats, matrix: activeHoles.map(h => ({ hole: h.hole, d: h.team2.d, a: h.team2.a, p: h.team2.p, penalties: h.team2.penalties })) }
+      }
+    ]);
 
     setLoading(false);
     if (error) { 
@@ -133,16 +179,30 @@ export default function ScrambleSessionPage() {
       console.error(error);
     } else {
       setSaved(true); 
-      setCourseName(""); setWinnerScore(""); setLoserScore(""); setTotalDistance("");
-      setHoles(Array.from({ length: 18 }, (_, i) => ({ hole: i + 1, par: 4, score: 4, d: [], a: [], c: [], p: [] })));
+      setCourseName(""); setTotalDistance(""); setWinningTeam("");
+      setHoles(Array.from({ length: 18 }, (_, i) => ({ hole: i + 1, par: 4, team1: { score: 0, penalties: 0, d: [], a: [], p: [] }, team2: { score: 0, penalties: 0, d: [], a: [], p: [] } })));
       setSuggestions([]); setTimeout(() => setSaved(false), 3000);
+      setCurrentHole(1);
     }
   };
 
-  const activeData = holes[currentHole - 1];
+  const handlePlayerChange = (setter: React.Dispatch<React.SetStateAction<string>>) => (e: React.ChangeEvent<HTMLSelectElement>) => {
+    if (e.target.value === "ADD_NEW") {
+      const newPlayer = prompt("Enter the new player's name:");
+      if (newPlayer && newPlayer.trim() !== "") {
+        setAvailablePlayers([...availablePlayers, newPlayer.trim()]);
+        setter(newPlayer.trim());
+      }
+    } else {
+      setter(e.target.value);
+    }
+  };
 
-  const renderShotRow = (catId: "d" | "a" | "c" | "p", label: string, icon: React.ReactNode) => {
-    const shots = activeData[catId];
+  const renderShotRow = (catId: "d" | "a" | "p", label: string, icon: React.ReactNode) => {
+    const shots = activeTeamData[catId];
+    const currentPlayer1 = activeTeam === "team1" ? t1p1 : t2p1;
+    const currentPlayer2 = activeTeam === "team1" ? t1p2 : t2p2;
+
     return (
       <div className="bg-stone-50 border border-stone-100 p-3 rounded-xl">
         <div className="flex justify-between items-center mb-3">
@@ -156,19 +216,18 @@ export default function ScrambleSessionPage() {
         
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => addShot(catId, "P1")} className="flex-1 py-3 bg-white border border-amber-200 text-amber-700 font-black rounded-lg active:bg-amber-50 transition shadow-sm text-sm">
-            + {player1}
+            + {currentPlayer1}
           </button>
           <button type="button" onClick={() => addShot(catId, "P2")} className="flex-1 py-3 bg-white border border-green-200 text-green-800 font-black rounded-lg active:bg-green-50 transition shadow-sm text-sm">
-            + {player2}
+            + {currentPlayer2}
           </button>
         </div>
 
-        {/* Dynamic Badge Display */}
         {shots.length > 0 && (
           <div className="mt-3 p-2 bg-white rounded-lg border border-stone-200 flex flex-wrap gap-2 min-h-[40px] items-center">
             {shots.map((p, idx) => (
               <div key={idx} className={`px-3 py-1 text-xs font-black rounded-md text-white shadow-sm animate-in zoom-in duration-200 ${p === "P1" ? "bg-amber-600" : "bg-green-800"}`}>
-                {p === "P1" ? player1 : player2}
+                {p === "P1" ? currentPlayer1 : currentPlayer2}
               </div>
             ))}
           </div>
@@ -185,7 +244,7 @@ export default function ScrambleSessionPage() {
           <Link href="/sessions" className="p-2 bg-white rounded-full shadow-sm border border-stone-200 text-stone-500 hover:text-green-800 transition">
             <ArrowLeft size={20} />
           </Link>
-          <h1 className="text-2xl font-bold text-stone-800 flex-1">Log Scramble</h1>
+          <h1 className="text-2xl font-bold text-stone-800 flex-1">Log Match</h1>
           {isAdmin ? (
             <span className="flex items-center gap-1 text-[10px] font-bold text-green-700 bg-green-100 px-2 py-1 rounded-md uppercase tracking-wider"><Unlock size={12} /> Unlocked</span>
           ) : (
@@ -203,119 +262,152 @@ export default function ScrambleSessionPage() {
         <form onSubmit={handleSave} className="space-y-6">
           <fieldset disabled={!isAdmin} className={`space-y-6 transition-opacity duration-300 ${!isAdmin ? 'opacity-50' : 'opacity-100'}`}>
             
-            {/* Team Setup */}
-            <div className="bg-white p-4 rounded-2xl shadow-sm border border-stone-100">
-              <label className="flex items-center gap-2 text-sm font-semibold text-stone-700 mb-3"><Users size={16} className="text-green-800" /> Team Roster</label>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Player 1</label>
-                  <select value={player1} onChange={(e) => setPlayer1(e.target.value)} className="w-full p-2 bg-amber-50 border border-amber-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition text-sm font-bold text-stone-900 mt-1">
-                    <option value="Dyshant">Dyshant</option><option value="Harshal">Harshal</option><option value="Anuj">Anuj</option><option value="Michael">Michael</option>
+            {/* UPDATED ROSTER: 4 PLAYERS */}
+            <div className="bg-white p-4 rounded-2xl shadow-sm border border-stone-100 space-y-4">
+              <label className="flex items-center gap-2 text-sm font-semibold text-stone-700"><Users size={16} className="text-green-800" /> Team Rosters</label>
+              
+              <div className="bg-stone-50 p-3 rounded-xl border border-stone-200">
+                <label className="text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-2 block">Team 1</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <select value={t1p1} onChange={handlePlayerChange(setT1p1)} className="w-full p-2 bg-white border border-stone-200 rounded-lg text-sm font-bold text-stone-900">
+                    {availablePlayers.map(p => <option key={p} value={p}>{p}</option>)}<option value="ADD_NEW">+ New</option>
+                  </select>
+                  <select value={t1p2} onChange={handlePlayerChange(setT1p2)} className="w-full p-2 bg-white border border-stone-200 rounded-lg text-sm font-bold text-stone-900">
+                    {availablePlayers.map(p => <option key={p} value={p}>{p}</option>)}<option value="ADD_NEW">+ New</option>
                   </select>
                 </div>
-                <div>
-                  <label className="text-[10px] font-bold text-green-800 uppercase tracking-wider">Player 2</label>
-                  <select value={player2} onChange={(e) => setPlayer2(e.target.value)} className="w-full p-2 bg-green-50 border border-green-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-800 transition text-sm font-bold text-stone-900 mt-1">
-                    <option value="Harshal">Harshal</option><option value="Dyshant">Dyshant</option><option value="Anuj">Anuj</option><option value="Michael">Michael</option>
+              </div>
+
+              <div className="bg-stone-50 p-3 rounded-xl border border-stone-200">
+                <label className="text-[10px] font-bold text-stone-500 uppercase tracking-wider mb-2 block">Team 2</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <select value={t2p1} onChange={handlePlayerChange(setT2p1)} className="w-full p-2 bg-white border border-stone-200 rounded-lg text-sm font-bold text-stone-900">
+                    {availablePlayers.map(p => <option key={p} value={p}>{p}</option>)}<option value="ADD_NEW">+ New</option>
+                  </select>
+                  <select value={t2p2} onChange={handlePlayerChange(setT2p2)} className="w-full p-2 bg-white border border-stone-200 rounded-lg text-sm font-bold text-stone-900">
+                    {availablePlayers.map(p => <option key={p} value={p}>{p}</option>)}<option value="ADD_NEW">+ New</option>
                   </select>
                 </div>
               </div>
             </div>
 
-            {/* General Info */}
             <div className="bg-white p-4 rounded-2xl shadow-sm border border-stone-100 space-y-4">
               <div className="relative">
                 <label className="flex items-center gap-2 text-sm font-semibold text-stone-700 mb-2"><MapPin size={16} className="text-green-800" /> Course Info</label>
                 <input type="text" placeholder="Course Name" value={courseName} onChange={(e) => handleCourseNameChange(e.target.value)} required className="w-full p-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-800 transition text-stone-900 disabled:bg-stone-100 mb-3" />
-                {suggestions.length > 0 && (
-                  <div className="absolute z-10 w-full mt-1 bg-white border border-stone-100 rounded-xl shadow-lg max-h-48 overflow-y-auto">
-                    {suggestions.map((suggestion, idx) => (
-                      <button key={idx} type="button" onClick={() => { setCourseName(suggestion); setSuggestions([]); }} className="w-full text-left px-4 py-3 text-sm font-semibold text-stone-700 hover:bg-stone-50 border-b border-stone-50 last:border-0 transition">{suggestion}</button>
-                    ))}
-                  </div>
-                )}
-                
                 <div className="grid grid-cols-2 gap-3 mb-3">
                    <input type="date" value={roundDate} onChange={(e) => setRoundDate(e.target.value)} required className="w-full p-3 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-800 transition text-stone-900 disabled:bg-stone-100" />
                    <select value={teeColor} onChange={(e) => setTeeColor(e.target.value)} className="w-full p-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-800 transition text-sm text-stone-900 disabled:bg-stone-100">
                     <option value="Blue">Blue Tees</option><option value="White">White Tees</option><option value="Silver">Silver Tees</option><option value="Black">Black Tees</option>
                   </select>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-3 mb-3">
                   <input type="number" placeholder="Total Par" value={par} onChange={(e) => setPar(e.target.value)} required className="w-full p-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-800 transition text-stone-900 disabled:bg-stone-100" />
                   <input type="number" placeholder="Total Yards" value={totalDistance} onChange={(e) => setTotalDistance(e.target.value)} required className="w-full p-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-800 transition text-stone-900 disabled:bg-stone-100" />
                 </div>
+                <div className="w-full">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-stone-700 mb-2"><Hash size={16} className="text-green-800" /> Round Type</label>
+                  <select 
+                    value={roundType} 
+                    onChange={(e) => { setRoundType(e.target.value as "9" | "18"); if (e.target.value === "9" && currentHole > 9) setCurrentHole(9); }} 
+                    className="w-full p-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-800 transition text-sm font-bold text-stone-900"
+                  >
+                    <option value="18">18 Holes</option>
+                    <option value="9">9 Holes</option>
+                  </select>
+                </div>
               </div>
             </div>
 
-            {/* Match Results */}
+            {/* UPDATED MATCH RESULTS: AUTO-CALCULATED SCORES */}
             <div className="bg-white p-4 rounded-2xl shadow-sm border border-stone-100">
               <label className="block text-sm font-semibold text-stone-700 mb-3">Match Results</label>
-              <select value={winningTeam} onChange={(e) => setWinningTeam(e.target.value)} required className="w-full p-3 mb-4 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-800 transition text-stone-900 disabled:bg-stone-100">
-                <option value="">Select winner...</option><option value="Dyshant & Harshal">Dyshant & Harshal</option><option value="Anuj & Michael">Anuj & Michael</option><option value="Tie">Tie / Push</option>
-              </select>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-green-800 mb-2 uppercase tracking-wide">Win Score</label>
-                  <input type="number" value={winnerScore} onChange={(e) => setWinnerScore(e.target.value)} required className="w-full p-3 bg-stone-50 border border-stone-200 rounded-xl font-black text-stone-900 disabled:bg-stone-100" />
+              
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div className="bg-stone-50 p-3 rounded-xl border border-stone-200 text-center">
+                  <p className="text-[10px] font-bold text-stone-500 uppercase">Team 1 Score</p>
+                  <p className="text-2xl font-black text-stone-800">{team1TotalScore}</p>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-stone-500 mb-2 uppercase tracking-wide">Lose Score</label>
-                  <input type="number" value={loserScore} onChange={(e) => setLoserScore(e.target.value)} required className="w-full p-3 bg-stone-50 border border-stone-200 rounded-xl font-black text-stone-900 disabled:bg-stone-100" />
+                <div className="bg-stone-50 p-3 rounded-xl border border-stone-200 text-center">
+                  <p className="text-[10px] font-bold text-stone-500 uppercase">Team 2 Score</p>
+                  <p className="text-2xl font-black text-stone-800">{team2TotalScore}</p>
                 </div>
               </div>
+
+              <select value={winningTeam} onChange={(e) => setWinningTeam(e.target.value)} required className="w-full p-3 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-800 transition text-stone-900 disabled:bg-stone-100">
+                <option value="">Confirm Winner...</option>
+                <option value={`${t1p1} & ${t1p2}`}>Team 1: {t1p1} & {t1p2}</option>
+                <option value={`${t2p1} & ${t2p2}`}>Team 2: {t2p1} & {t2p2}</option>
+                <option value="Tie">Tie / Push</option>
+              </select>
             </div>
 
-            {/* HOLE BY HOLE TRACKER */}
             <div className="bg-white rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
               <div className="bg-stone-900 p-4 flex items-center justify-between text-white">
                 <button type="button" onClick={() => setCurrentHole(Math.max(1, currentHole - 1))} className={`p-2 rounded-full ${currentHole === 1 ? 'opacity-30' : 'hover:bg-stone-800 active:bg-stone-700'}`}>
                   <ChevronLeft size={24} />
                 </button>
                 <div className="text-center">
-                  <p className="text-[10px] uppercase tracking-widest text-stone-400 font-bold mb-1">Team Hole</p>
+                  <p className="text-[10px] uppercase tracking-widest text-stone-400 font-bold mb-1">Hole</p>
                   <p className="text-3xl font-black text-amber-500">{currentHole}</p>
                 </div>
-                <button type="button" onClick={() => setCurrentHole(Math.min(18, currentHole + 1))} className={`p-2 rounded-full ${currentHole === 18 ? 'opacity-30' : 'hover:bg-stone-800 active:bg-stone-700'}`}>
+                <button type="button" onClick={() => setCurrentHole(Math.min(maxHoles, currentHole + 1))} className={`p-2 rounded-full ${currentHole === maxHoles ? 'opacity-30' : 'hover:bg-stone-800 active:bg-stone-700'}`}>
                   <ChevronRight size={24} />
                 </button>
               </div>
 
               <div className="p-5 space-y-6">
                 
-                {/* Par & Score Steppers */}
-                <div className="grid grid-cols-2 gap-6 pb-6 border-b border-stone-100">
+                {/* NEW PILL TOGGLE FOR TEAM ENTRY */}
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setActiveTeam("team1")} className={`flex-1 py-2 text-sm font-bold rounded-lg transition border ${activeTeam === "team1" ? "bg-stone-800 text-white border-stone-800 shadow-sm" : "bg-white text-stone-500 border-stone-200"}`}>
+                    Team 1
+                  </button>
+                  <button type="button" onClick={() => setActiveTeam("team2")} className={`flex-1 py-2 text-sm font-bold rounded-lg transition border ${activeTeam === "team2" ? "bg-stone-800 text-white border-stone-800 shadow-sm" : "bg-white text-stone-500 border-stone-200"}`}>
+                    Team 2
+                  </button>
+                </div>
+                
+                <div className="grid grid-cols-3 gap-4 pb-6 border-b border-stone-100">
                   <div className="flex flex-col items-center">
-                    <label className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-2">Hole Par</label>
-                    <div className="flex items-center gap-4">
-                      <button type="button" onClick={() => adjustScore("par", -1, 3)} className="w-8 h-8 flex items-center justify-center bg-stone-100 rounded-full text-stone-600 active:bg-stone-200"><Minus size={16} /></button>
-                      <span className="text-2xl font-black text-stone-800 w-6 text-center">{activeData.par}</span>
-                      <button type="button" onClick={() => adjustScore("par", 1)} className="w-8 h-8 flex items-center justify-center bg-stone-100 rounded-full text-stone-600 active:bg-stone-200"><Plus size={16} /></button>
+                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-2">Hole Par</label>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => adjustPar(-1, 3)} className="w-7 h-7 flex items-center justify-center bg-stone-100 rounded-full text-stone-600 active:bg-stone-200"><Minus size={14} /></button>
+                      <span className="text-xl font-black text-stone-800 w-5 text-center">{activeData.par}</span>
+                      <button type="button" onClick={() => adjustPar(1, 5)} className="w-7 h-7 flex items-center justify-center bg-stone-100 rounded-full text-stone-600 active:bg-stone-200"><Plus size={14} /></button>
                     </div>
                   </div>
                   <div className="flex flex-col items-center">
-                    <label className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-2">Team Score</label>
-                    <div className="flex items-center gap-4">
-                      <button type="button" onClick={() => adjustScore("score", -1, 1)} className="w-8 h-8 flex items-center justify-center bg-stone-100 rounded-full text-stone-600 active:bg-stone-200"><Minus size={16} /></button>
-                      <span className={`text-2xl font-black w-6 text-center ${activeData.score < activeData.par ? 'text-red-500' : activeData.score > activeData.par ? 'text-blue-500' : 'text-stone-800'}`}>{activeData.score}</span>
-                      <button type="button" onClick={() => adjustScore("score", 1)} className="w-8 h-8 flex items-center justify-center bg-stone-100 rounded-full text-stone-600 active:bg-stone-200"><Plus size={16} /></button>
+                    <label className="text-[10px] font-bold text-stone-400 uppercase tracking-wider mb-2">Score</label>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => adjustScore("score", -1, 0)} className="w-7 h-7 flex items-center justify-center bg-stone-100 rounded-full text-stone-600 active:bg-stone-200"><Minus size={14} /></button>
+                      <span className={`text-xl font-black w-5 text-center ${activeTeamData.score === 0 ? 'text-stone-300' : activeTeamData.score < activeData.par ? 'text-red-500' : activeTeamData.score > activeData.par ? 'text-blue-500' : 'text-stone-800'}`}>
+                        {activeTeamData.score === 0 ? "-" : activeTeamData.score}
+                      </span>
+                      <button type="button" onClick={() => adjustScore("score", 1)} className="w-7 h-7 flex items-center justify-center bg-stone-100 rounded-full text-stone-600 active:bg-stone-200"><Plus size={14} /></button>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <label className="text-[10px] font-bold text-red-400 uppercase tracking-wider mb-2">Penalties</label>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => adjustScore("penalties", -1, 0)} className="w-7 h-7 flex items-center justify-center bg-red-50 rounded-full text-red-600 active:bg-red-100"><Minus size={14} /></button>
+                      <span className="text-xl font-black text-red-600 w-4 text-center">{activeTeamData.penalties}</span>
+                      <button type="button" onClick={() => adjustScore("penalties", 1)} className="w-7 h-7 flex items-center justify-center bg-red-50 rounded-full text-red-600 active:bg-red-100"><Plus size={14} /></button>
                     </div>
                   </div>
                 </div>
 
-                {/* Shot Selection Rows */}
                 <div className="space-y-4">
-                  {renderShotRow("d", "Drives Used", <Navigation size={14} className="text-amber-600" />)}
+                  {activeData.par !== 3 && renderShotRow("d", "Drives Used", <Navigation size={14} className="text-amber-600" />)}
                   {renderShotRow("a", "Approaches Used", <Crosshair size={14} className="text-green-800" />)}
-                  {renderShotRow("c", "Chips / Sand Used", <Target size={14} className="text-stone-500" />)}
                   {renderShotRow("p", "Putts Used", <Flag size={14} className="text-yellow-500" />)}
                 </div>
 
               </div>
             </div>
 
-            <button type="submit" className="w-full bg-green-900 text-white font-bold py-4 rounded-xl active:bg-green-800 transition flex justify-center items-center gap-2 disabled:bg-stone-300 disabled:text-stone-500">
-              {loading ? <Loader2 size={20} className="animate-spin" /> : saved ? <><CheckCircle size={20} className="text-amber-400" /> Saved!</> : "Save Scramble Data"}
+            <button type="submit" disabled={!isReadyToSave || loading} className={`w-full font-bold py-4 rounded-xl transition flex justify-center items-center gap-2 ${isReadyToSave ? 'bg-green-900 text-white active:bg-green-800' : 'bg-stone-200 text-stone-400'}`}>
+              {loading ? <Loader2 size={20} className="animate-spin" /> : saved ? <><CheckCircle size={20} className="text-amber-400" /> Saved!</> : isReadyToSave ? `Save ${roundType}-Hole Match` : `Enter all ${roundType} scores to save`}
             </button>
           </fieldset>
         </form>
