@@ -177,7 +177,6 @@ export default function AnalyticsPage() {
     }
   });
 
-// REVERSE ENGINEER P1 vs P2 FOR THE MATRIX
   let matrixP1Name = p1Name;
   let matrixP2Name = p2Name;
 
@@ -186,7 +185,6 @@ export default function AnalyticsPage() {
       const p1MatrixApps = activeMatrix.reduce((acc, r) => acc + (r.a?.filter(x => x === "P1").length || 0), 0);
       const p1MatrixPutts = activeMatrix.reduce((acc, r) => acc + (r.p?.filter(x => x === "P1").length || 0), 0);
 
-      // Safe TypeScript cast to avoid the 'any' ESLint error
       const safeStats = activeMatrixStats as Record<string, PlayerStats> | null;
       const p1StatsRaw = safeStats?.[p1Name];
       const p2StatsRaw = safeStats?.[p2Name];
@@ -199,7 +197,6 @@ export default function AnalyticsPage() {
                      Math.abs(p1MatrixApps - (p2StatsRaw?.approaches || 0)) +
                      Math.abs(p1MatrixPutts - (p2StatsRaw?.putts || 0));
 
-      // If P2's actual stats are a closer mathematical match to P1's matrix footprint, swap them!
       if (p2Diff < p1Diff) {
           matrixP1Name = p2Name;
           matrixP2Name = p1Name;
@@ -289,7 +286,6 @@ export default function AnalyticsPage() {
     return (
       <div className="flex flex-wrap items-center justify-center gap-1 min-h-[24px]">
         {playerArray.map((p, index) => {
-          // Resolve actual player name using our reverse-engineered lookup
           const actualName = p === "P1" ? matrixP1Name : matrixP2Name;
           const isFirstPlayer = actualName === p1Name;
 
@@ -322,29 +318,31 @@ export default function AnalyticsPage() {
         
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
           
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-stone-100 flex items-center justify-between">
-            <div className="flex items-center gap-3">
+          {/* TOUCH-FRIENDLY TEAM SELECTOR */}
+          <div className="bg-white p-4 rounded-2xl shadow-sm border border-stone-100 flex items-center justify-between relative overflow-hidden focus-within:ring-2 focus-within:ring-stone-200">
+            <select 
+              value={activeTeamSelection} 
+              onChange={(e) => {
+                setScrambleTeam(e.target.value);
+                setSelectedTeamRound("Overall");
+              }} 
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+            >
+              {uniqueTeams.map((team) => (
+                <option key={team} value={team}>{team}</option>
+              ))}
+            </select>
+            <div className="flex items-center gap-3 pointer-events-none">
               <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center"><Users size={20} /></div>
               <div>
                 <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Viewing Team Stats</p>
-                <select 
-                  value={activeTeamSelection} 
-                  onChange={(e) => {
-                    setScrambleTeam(e.target.value);
-                    setSelectedTeamRound("Overall"); // Reset timeframe when changing teams
-                  }} 
-                  className="bg-transparent font-black text-lg text-stone-800 focus:outline-none appearance-none pr-6 cursor-pointer"
-                >
-                  {uniqueTeams.map((team) => (
-                    <option key={team} value={team}>{team}</option>
-                  ))}
-                </select>
+                <p className="font-black text-lg text-stone-800">{activeTeamSelection}</p>
               </div>
             </div>
             <ChevronDown size={20} className="text-stone-300 pointer-events-none" />
           </div>
 
-          {activeTeamMatches.length === 0 ? (
+          {totalMatchesCount === 0 ? (
             <div className="bg-white p-8 rounded-2xl shadow-sm border border-stone-100 text-center text-stone-500">
               No scramble sessions logged for this team yet.
             </div>
@@ -358,23 +356,27 @@ export default function AnalyticsPage() {
               {scrambleSubView === "recap" ? (
                 <div className="space-y-6 animate-in fade-in">
                   
-                  <div className="flex items-center justify-between bg-white p-3 rounded-xl shadow-sm border border-stone-100">
-                    <div className="flex items-center gap-2 text-stone-500">
+                  {/* TOUCH-FRIENDLY TIMEFRAME SELECTOR */}
+                  <div className="flex items-center justify-between bg-white p-3 rounded-xl shadow-sm border border-stone-100 relative focus-within:ring-2 focus-within:ring-stone-200">
+                    <select
+                      value={selectedTeamRound}
+                      onChange={(e) => setSelectedTeamRound(e.target.value)}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                    >
+                      <option value="Overall">Overall (All Matches)</option>
+                      {activeTeamMatches.map(m => (
+                        <option key={m.id} value={m.id}>{m.label}</option>
+                      ))}
+                    </select>
+                    <div className="flex items-center gap-2 text-stone-500 pointer-events-none">
                       <Calendar size={16} />
                       <span className="text-[10px] font-bold uppercase tracking-widest">Timeframe</span>
                     </div>
-                    <div className="relative">
-                      <select
-                        value={selectedTeamRound}
-                        onChange={(e) => setSelectedTeamRound(e.target.value)}
-                        className="bg-transparent font-bold text-sm text-stone-800 focus:outline-none appearance-none pr-5 cursor-pointer text-right max-w-[180px] text-ellipsis overflow-hidden whitespace-nowrap"
-                      >
-                        <option value="Overall">Overall (All Matches)</option>
-                        {activeTeamMatches.map(m => (
-                          <option key={m.id} value={m.id}>{m.label}</option>
-                        ))}
-                      </select>
-                      <ChevronDown size={14} className="absolute right-0 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+                    <div className="flex items-center gap-1 pointer-events-none">
+                      <span className="font-bold text-sm text-stone-800 text-right max-w-[180px] text-ellipsis overflow-hidden whitespace-nowrap">
+                        {selectedTeamRound === "Overall" ? "Overall (All Matches)" : activeTeamMatches.find(m => m.id === selectedTeamRound)?.label}
+                      </span>
+                      <ChevronDown size={14} className="text-stone-400" />
                     </div>
                   </div>
 
@@ -514,47 +516,53 @@ export default function AnalyticsPage() {
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
           
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-stone-100 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
+            
+            {/* TOUCH-FRIENDLY SOLO PLAYER SELECTOR */}
+            <div className="flex items-center justify-between relative focus-within:ring-2 focus-within:ring-stone-200 rounded-xl">
+              <select 
+                value={activeSoloSelection} 
+                onChange={(e) => {
+                  setSoloPlayer(e.target.value);
+                  setSoloCourseFilter("All Courses"); 
+                }} 
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+              >
+                {uniqueSoloPlayers.map((player) => (
+                  <option key={player} value={player}>{player}</option>
+                ))}
+              </select>
+              <div className="flex items-center gap-3 pointer-events-none">
                 <div className="w-10 h-10 bg-green-50 text-green-800 rounded-full flex items-center justify-center"><UserCircle size={20} /></div>
                 <div>
                   <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Viewing Stats For</p>
-                  <select 
-                    value={activeSoloSelection} 
-                    onChange={(e) => {
-                      setSoloPlayer(e.target.value);
-                      setSoloCourseFilter("All Courses"); 
-                    }} 
-                    className="bg-transparent font-black text-lg text-stone-800 focus:outline-none appearance-none pr-6 cursor-pointer"
-                  >
-                    {uniqueSoloPlayers.map((player) => (
-                      <option key={player} value={player}>{player}</option>
-                    ))}
-                  </select>
+                  <p className="font-black text-lg text-stone-800">{activeSoloSelection}</p>
                 </div>
               </div>
               <ChevronDown size={20} className="text-stone-300 pointer-events-none" />
             </div>
 
-            <div className="border-t border-stone-100 pt-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
+            {/* TOUCH-FRIENDLY COURSE SELECTOR */}
+            <div className="border-t border-stone-100 pt-4 flex items-center justify-between relative focus-within:ring-2 focus-within:ring-stone-200 rounded-xl">
+              <select 
+                value={soloCourseFilter} 
+                onChange={(e) => setSoloCourseFilter(e.target.value)} 
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+              >
+                <option value="All Courses">All Courses</option>
+                {playedCourses.map(course => (
+                  <option key={course} value={course}>{course}</option>
+                ))}
+              </select>
+              <div className="flex items-center gap-3 pointer-events-none">
                 <div className="w-10 h-10 bg-stone-50 text-stone-500 rounded-full flex items-center justify-center"><MapPin size={20} /></div>
                 <div>
                   <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Course Filter</p>
-                  <select 
-                    value={soloCourseFilter} 
-                    onChange={(e) => setSoloCourseFilter(e.target.value)} 
-                    className="bg-transparent font-bold text-sm text-stone-600 focus:outline-none appearance-none pr-6 cursor-pointer"
-                  >
-                    <option value="All Courses">All Courses</option>
-                    {playedCourses.map(course => (
-                      <option key={course} value={course}>{course}</option>
-                    ))}
-                  </select>
+                  <p className="font-bold text-sm text-stone-600">{soloCourseFilter}</p>
                 </div>
               </div>
               <ChevronDown size={20} className="text-stone-300 pointer-events-none" />
             </div>
+            
           </div>
 
           {soloStats.rounds === 0 ? (

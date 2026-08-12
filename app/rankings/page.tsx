@@ -17,6 +17,20 @@ interface TeamStat {
   winPct: number;
 }
 
+// STRICT TYPES TO PREVENT ESLINT / TYPESCRIPT ERRORS
+interface SessionRecord {
+  id: string;
+  round_date: string;
+  course_name: string;
+  winning_team: string;
+  loser_team?: string;
+  shot_contributions?: Record<string, unknown>;
+}
+
+interface SoloRoundRecord {
+  player_name: string;
+}
+
 export default function RankingsPage() {
   const [loading, setLoading] = useState(true);
   const [teamStats, setTeamStats] = useState<TeamStat[]>([]);
@@ -32,6 +46,9 @@ export default function RankingsPage() {
       if (sessionsRes.error) {
         console.error("Error fetching sessions:", sessionsRes.error);
       } else if (sessionsRes.data) {
+        
+        // Explicitly cast the raw data to our strict interface
+        const sessions = sessionsRes.data as SessionRecord[];
         
         const teamsData = new Map<string, { name: string, matches: Set<string>, wins: Set<string>, ties: Set<string> }>();
 
@@ -52,7 +69,7 @@ export default function RankingsPage() {
         registerTeam("Dyshant & Harshal");
         registerTeam("Anuj & Michael");
 
-        sessionsRes.data.forEach(row => {
+        sessions.forEach(row => {
           const matchId = `${row.round_date || 'date'}_${row.course_name || 'course'}_${row.winning_team || 'tie'}`;
           const teamsInThisRow = new Map<string, string>();
 
@@ -101,7 +118,8 @@ export default function RankingsPage() {
       }
 
       if (soloRes.data) {
-        const uniqueSolo = Array.from(new Set(soloRes.data.map(r => r.player_name)));
+        const soloRecords = soloRes.data as SoloRoundRecord[];
+        const uniqueSolo = Array.from(new Set(soloRecords.map(r => r.player_name)));
         setSoloPlayers(uniqueSolo.length > 0 ? uniqueSolo : ["Harshal", "Dyshant", "Anuj", "Michael"]);
       }
 
