@@ -1,64 +1,25 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { UserCircle, Activity, Loader2, Navigation, Crosshair, Target, Flag, PieChart, TrendingUp, ChevronDown, ListOrdered, Users, Trophy, MapPin } from "lucide-react";
+import { UserCircle, Activity, Loader2, Navigation, Crosshair, Target, Flag, PieChart, TrendingUp, ChevronDown, ListOrdered, Users, Trophy, MapPin, Calendar } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-interface PlayerStats {
-  drives: number;
-  approaches: number;
-  chips?: number; // Optional for backward compatibility with older DB entries
-  putts: number;
-}
+interface PlayerStats { drives: number; approaches: number; chips?: number; putts: number; }
+interface ScrambleMatrixRow { hole: number; penalties?: number; d: string[]; a: string[]; c?: string[]; p: string[]; }
+interface SoloHoleData { hole: number; par: number; score: number; penalties: number; fairway: "Hit" | "Left" | "Right" | "N/A" | "Short" | "Long"; gir: boolean; girMiss: "Left" | "Short" | "Long" | "Right" | null; chips: number; bunker: number; putts: number; }
+interface SessionRecord { round_date: string; course_name?: string; winning_team: string; loser_team?: string; score: number; loser_score: number; shot_contributions: Record<string, PlayerStats> & { matrix?: ScrambleMatrixRow[]; }; }
+interface SoloRoundRecord { player_name: string; course_name: string; total_score: number; hole_data: SoloHoleData[]; }
 
-interface ScrambleMatrixRow {
-  hole: number;
-  penalties?: number;
-  d: string[];
-  a: string[];
-  c?: string[]; // Optional for backward compatibility
-  p: string[];
-}
-
-interface SoloHoleData {
-  hole: number;
-  par: number;
-  score: number;
-  penalties: number;
-  fairway: "Hit" | "Left" | "Right" | "N/A" | "Short" | "Long";
-  gir: boolean;
-  girMiss: "Left" | "Short" | "Long" | "Right" | null; 
-  chips: number;
-  bunker: number;
-  putts: number;
-}
-
-interface SessionRecord {
-  round_date: string;
-  winning_team: string;
-  score: number;
-  loser_score: number;
-  shot_contributions: Record<string, PlayerStats> & {
-    matrix?: ScrambleMatrixRow[];
-  };
-}
-
-interface SoloRoundRecord {
-  player_name: string;
-  course_name: string;
-  total_score: number;
-  hole_data: SoloHoleData[];
-}
-
-export default function PlayersPage() {
+export default function AnalyticsPage() {
   const [view, setView] = useState<"scramble" | "solo">("scramble");
-  
   const [soloSubView, setSoloSubView] = useState<"overview" | "scratch">("overview");
   const [scrambleSubView, setScrambleSubView] = useState<"recap" | "synergy">("recap");
+  
+  const [selectedTeamRound, setSelectedTeamRound] = useState<string>("Overall");
   
   const [loading, setLoading] = useState(true);
   
@@ -69,13 +30,9 @@ export default function PlayersPage() {
   const [soloPlayer, setSoloPlayer] = useState("Harshal");
   const [soloCourseFilter, setSoloCourseFilter] = useState("All Courses");
 
-  const teamPlayers = scrambleTeam.split(" & ");
-  const p1Name = teamPlayers[0];
-  const p2Name = teamPlayers[1];
-
   useEffect(() => {
     async function fetchData() {
-      const { data: sessionData } = await supabase.from("sessions").select("*").not("shot_contributions", "is", null);
+      const { data: sessionData } = await supabase.from("sessions").select("*");
       const { data: soloData } = await supabase.from("solo_rounds").select("*");
 
       if (sessionData) setAllSessions(sessionData as SessionRecord[]);
@@ -86,35 +43,172 @@ export default function PlayersPage() {
     fetchData();
   }, []);
 
-  // ==========================================
-  // SCRAMBLE MATH CRUNCHER
-  // ==========================================
-  const teamSessions = allSessions.filter(s => s.shot_contributions && s.shot_contributions[p1Name] && s.shot_contributions[p2Name]);
-  const latestTeamSession = teamSessions.length > 0 ? teamSessions[teamSessions.length - 1] : null;
-  const activeMatrix = latestTeamSession?.shot_contributions?.matrix || [];
-
- const p1Stats: PlayerStats = { drives: 0, approaches: 0, chips: 0, putts: 0 };
-  const p2Stats: PlayerStats = { drives: 0, approaches: 0, chips: 0, putts: 0 };
-  let teamTotalScore = 0;
-  let teamWins = 0;
-
-  teamSessions.forEach(session => {
-    const stats = session.shot_contributions;
-    if (stats[p1Name] && stats[p2Name]) {
-      p1Stats.drives += stats[p1Name].drives || 0;
-      p1Stats.approaches += stats[p1Name].approaches || 0;
-      p1Stats.putts += stats[p1Name].putts || 0;
-      
-      p2Stats.drives += stats[p2Name].drives || 0;
-      p2Stats.approaches += stats[p2Name].approaches || 0;
-      p2Stats.putts += stats[p2Name].putts || 0;
+  const teamsMap = new Map<string, string>(); 
+  
+  const addTeam = (displayStr: string | null | undefined) => {
+    if (displayStr && displayStr.includes("&")) {
+      const key = displayStr.split("&").map(s => s.trim()).sort().join(" & ");
+      if (!teamsMap.has(key)) teamsMap.set(key, displayStr.trim());
     }
-    if (session.winning_team === scrambleTeam) { teamTotalScore += session.score; teamWins++; } 
-    else { teamTotalScore += session.loser_score; }
+  };
+
+  addTeam("Dyshant & Harshal");
+  addTeam("Anuj & Michael");
+
+  allSessions.forEach(s => {
+    addTeam(s.winning_team);
+    addTeam(s.loser_team);
+    if (s.shot_contributions) {
+      const keys = Object.keys(s.shot_contributions).filter(k => k !== 'matrix' && k !== 'penalties');
+      if (keys.length >= 2) addTeam(keys.join(" & "));
+    }
+  });
+  
+  const uniqueTeams = Array.from(teamsMap.values());
+  const uniqueSoloPlayers = Array.from(new Set(soloRounds.map(r => r.player_name)));
+  if (uniqueSoloPlayers.length === 0) uniqueSoloPlayers.push("Harshal");
+
+  const activeTeamSelection = uniqueTeams.includes(scrambleTeam) ? scrambleTeam : uniqueTeams[0];
+  const activeSoloSelection = uniqueSoloPlayers.includes(soloPlayer) ? soloPlayer : uniqueSoloPlayers[0];
+
+  const teamPlayers = activeTeamSelection.split("&").map(p => p.trim());
+  const p1Name = teamPlayers[0] || "";
+  const p2Name = teamPlayers[1] || "";
+
+  const activeTeamKey = activeTeamSelection.split("&").map(x=>x.trim()).sort().join(" & ");
+  const sortedAllSessions = [...allSessions].sort((a, b) => new Date(a.round_date || 0).getTime() - new Date(b.round_date || 0).getTime());
+
+  const activeTeamMatches: { id: string, label: string }[] = [];
+  const seenMatchIds = new Set<string>();
+
+  sortedAllSessions.forEach(session => {
+    const matchId = `${session.round_date || 'date'}_${session.course_name || 'course'}_${session.winning_team || 'tie'}`;
+    const winTeamKey = session.winning_team && session.winning_team.includes("&") ? session.winning_team.split("&").map(x=>x.trim()).sort().join(" & ") : null;
+    const loseTeamKey = session.loser_team && session.loser_team.includes("&") ? session.loser_team.split("&").map(x=>x.trim()).sort().join(" & ") : null;
+    const hasStats = session.shot_contributions && session.shot_contributions[p1Name] && session.shot_contributions[p2Name];
+
+    if (winTeamKey === activeTeamKey || loseTeamKey === activeTeamKey || hasStats) {
+        if (!seenMatchIds.has(matchId)) {
+            seenMatchIds.add(matchId);
+            const dateLabel = session.round_date ? new Date(session.round_date + 'T12:00:00Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : "Unknown Date";
+            activeTeamMatches.push({
+                id: matchId,
+                label: `${dateLabel} - ${session.course_name || 'Unknown Course'}`
+            });
+        }
+    }
   });
 
-  const teamAvgScore = teamSessions.length > 0 ? Math.round((teamTotalScore / teamSessions.length) * 10) / 10 : 0;
-  const teamWinRate = teamSessions.length > 0 ? Math.round((teamWins / teamSessions.length) * 100) : 0;
+  activeTeamMatches.reverse(); 
+
+  const p1Stats: PlayerStats = { drives: 0, approaches: 0, chips: 0, putts: 0 };
+  const p2Stats: PlayerStats = { drives: 0, approaches: 0, chips: 0, putts: 0 };
+  let teamWins = 0;
+  let teamTies = 0;
+  let totalMatchesCount = 0;
+  const scores9: number[] = [];
+  const scores18: number[] = [];
+  
+  let activeMatrix: ScrambleMatrixRow[] = [];
+  let activeMatrixDate = "";
+  let activeMatrixStats: Record<string, PlayerStats> | null = null;
+  const processedMatches = new Set<string>();
+
+  sortedAllSessions.forEach(session => {
+    const matchId = `${session.round_date || 'date'}_${session.course_name || 'course'}_${session.winning_team || 'tie'}`;
+    
+    if (selectedTeamRound !== "Overall" && matchId !== selectedTeamRound) return;
+
+    const winTeamKey = session.winning_team && session.winning_team.includes("&") ? session.winning_team.split("&").map(x=>x.trim()).sort().join(" & ") : null;
+    const loseTeamKey = session.loser_team && session.loser_team.includes("&") ? session.loser_team.split("&").map(x=>x.trim()).sort().join(" & ") : null;
+    const isTie = session.winning_team && session.winning_team.toLowerCase().includes("tie");
+    const hasStats = session.shot_contributions && session.shot_contributions[p1Name] && session.shot_contributions[p2Name];
+
+    let isParticipant = false;
+    let scoreForThisTeam = 0;
+
+    if (winTeamKey === activeTeamKey) {
+        isParticipant = true;
+        scoreForThisTeam = session.score;
+    } else if (loseTeamKey === activeTeamKey) {
+        isParticipant = true;
+        scoreForThisTeam = session.loser_score || session.score;
+    } else if (hasStats) {
+        isParticipant = true;
+        scoreForThisTeam = session.score; 
+    }
+
+    if (isParticipant) {
+        if (!processedMatches.has(matchId)) {
+            processedMatches.add(matchId);
+            totalMatchesCount++;
+
+            if (winTeamKey === activeTeamKey && !isTie) teamWins++;
+            if (isTie) teamTies++;
+
+            let is9 = false;
+            if (session.shot_contributions?.matrix && session.shot_contributions.matrix.length > 0) {
+              is9 = session.shot_contributions.matrix.length <= 9;
+            } else {
+              is9 = scoreForThisTeam < 55; 
+            }
+
+            if (scoreForThisTeam > 0) {
+              if (is9) scores9.push(scoreForThisTeam);
+              else scores18.push(scoreForThisTeam);
+            }
+        }
+
+        if (hasStats) {
+            p1Stats.drives += session.shot_contributions[p1Name].drives || 0;
+            p1Stats.approaches += session.shot_contributions[p1Name].approaches || 0;
+            p1Stats.putts += session.shot_contributions[p1Name].putts || 0;
+
+            p2Stats.drives += session.shot_contributions[p2Name].drives || 0;
+            p2Stats.approaches += session.shot_contributions[p2Name].approaches || 0;
+            p2Stats.putts += session.shot_contributions[p2Name].putts || 0;
+
+            if (session.shot_contributions.matrix && session.shot_contributions.matrix.length > 0) {
+                activeMatrix = session.shot_contributions.matrix;
+                activeMatrixDate = session.round_date;
+                activeMatrixStats = session.shot_contributions;
+            }
+        }
+    }
+  });
+
+// REVERSE ENGINEER P1 vs P2 FOR THE MATRIX
+  let matrixP1Name = p1Name;
+  let matrixP2Name = p2Name;
+
+  if (activeMatrix.length > 0) {
+      const p1MatrixDrives = activeMatrix.reduce((acc, r) => acc + (r.d?.filter(x => x === "P1").length || 0), 0);
+      const p1MatrixApps = activeMatrix.reduce((acc, r) => acc + (r.a?.filter(x => x === "P1").length || 0), 0);
+      const p1MatrixPutts = activeMatrix.reduce((acc, r) => acc + (r.p?.filter(x => x === "P1").length || 0), 0);
+
+      // Safe TypeScript cast to avoid the 'any' ESLint error
+      const safeStats = activeMatrixStats as Record<string, PlayerStats> | null;
+      const p1StatsRaw = safeStats?.[p1Name];
+      const p2StatsRaw = safeStats?.[p2Name];
+
+      const p1Diff = Math.abs(p1MatrixDrives - (p1StatsRaw?.drives || 0)) +
+                     Math.abs(p1MatrixApps - (p1StatsRaw?.approaches || 0)) +
+                     Math.abs(p1MatrixPutts - (p1StatsRaw?.putts || 0));
+
+      const p2Diff = Math.abs(p1MatrixDrives - (p2StatsRaw?.drives || 0)) +
+                     Math.abs(p1MatrixApps - (p2StatsRaw?.approaches || 0)) +
+                     Math.abs(p1MatrixPutts - (p2StatsRaw?.putts || 0));
+
+      // If P2's actual stats are a closer mathematical match to P1's matrix footprint, swap them!
+      if (p2Diff < p1Diff) {
+          matrixP1Name = p2Name;
+          matrixP2Name = p1Name;
+      }
+  }
+
+  const avg9 = scores9.length > 0 ? Math.round((scores9.reduce((a, b) => a + b, 0) / scores9.length) * 10) / 10 : 0;
+  const avg18 = scores18.length > 0 ? Math.round((scores18.reduce((a, b) => a + b, 0) / scores18.length) * 10) / 10 : 0;
+  const teamWinRate = totalMatchesCount > 0 ? Math.round((teamWins / totalMatchesCount) * 100) : 0;
   const getPct = (val1: number, val2: number) => { const total = val1 + val2; return total === 0 ? 50 : Math.round((val1 / total) * 100); };
 
   const statCategories = [
@@ -123,49 +217,37 @@ export default function PlayersPage() {
     { id: "putts", label: "Putting", icon: <Flag size={16} className="text-yellow-500" /> },
   ];
 
-  // ==========================================
-  // SOLO MATH CRUNCHER
-  // ==========================================
-  const allRoundsForPlayer = soloRounds.filter(r => r.player_name === soloPlayer);
-  const playedCourses = Array.from(new Set(allRoundsForPlayer.map(r => r.course_name)));
+  const totalTeamShots = p1Stats.drives + p1Stats.approaches + p1Stats.putts + p2Stats.drives + p2Stats.approaches + p2Stats.putts;
+  const isFiltered = selectedTeamRound !== "Overall";
 
-  const playerSoloRounds = allRoundsForPlayer.filter(r => 
-    soloCourseFilter === "All Courses" || r.course_name === soloCourseFilter
-  );
+  const allRoundsForPlayer = soloRounds.filter(r => r.player_name === activeSoloSelection);
+  const playedCourses = Array.from(new Set(allRoundsForPlayer.map(r => r.course_name)));
+  const playerSoloRounds = allRoundsForPlayer.filter(r => soloCourseFilter === "All Courses" || r.course_name === soloCourseFilter);
   
   const soloStats = {
-    rounds: playerSoloRounds.length,
-    avgScore: 0, girPct: 0,
+    rounds: playerSoloRounds.length, avg9: 0, avg18: 0, girPct: 0,
     fairways: { hit: 0, left: 0, right: 0, short: 0, total: 0 },
     putts: { one: 0, two: 0, threePlus: 0, total: 0 },
     shortGame: { chips: 0, bunker: 0 },
-    scratch: {
-      scrambleOpps: 0, scrambleSaves: 0,
-      sandOpps: 0, sandSaves: 0,
-      girPutts: 0, girCount: 0,
-      p3Score: 0, p3Count: 0,
-      p4Score: 0, p4Count: 0,
-      p5Score: 0, p5Count: 0,
-      cleanScore: 0, cleanCount: 0,
-      penaltyScore: 0, penaltyCount: 0
-    }
+    scratch: { scrambleOpps: 0, scrambleSaves: 0, sandOpps: 0, sandSaves: 0, girPutts: 0, girCount: 0, p3Score: 0, p3Count: 0, p4Score: 0, p4Count: 0, p5Score: 0, p5Count: 0, cleanScore: 0, cleanCount: 0, penaltyScore: 0, penaltyCount: 0 }
   };
 
   if (playerSoloRounds.length > 0) {
-    let totalScore = 0; let totalGir = 0; let totalHoles = 0; let totalChips = 0; let totalBunker = 0;
-
+    let totalScore9 = 0; let count9 = 0;
+    let totalScore18 = 0; let count18 = 0;
+    let totalGir = 0; let totalHoles = 0; let totalChips = 0; let totalBunker = 0;
+    
     playerSoloRounds.forEach(round => {
-      totalScore += round.total_score;
       const holes = round.hole_data || [];
+      const is9 = holes.length <= 9;
       
+      if (is9) { totalScore9 += round.total_score; count9++; } 
+      else { totalScore18 += round.total_score; count18++; }
+
       holes.forEach(h => {
         totalHoles++;
         if (h.gir) { totalGir++; soloStats.scratch.girCount++; soloStats.scratch.girPutts += h.putts; }
-        else {
-          soloStats.scratch.scrambleOpps++;
-          if (h.score <= h.par && h.score > 0) soloStats.scratch.scrambleSaves++;
-        }
-        
+        else { soloStats.scratch.scrambleOpps++; if (h.score <= h.par && h.score > 0) soloStats.scratch.scrambleSaves++; }
         if (h.par !== 3 && h.fairway !== "N/A") {
           soloStats.fairways.total++;
           if (h.fairway === "Hit") soloStats.fairways.hit++;
@@ -173,37 +255,27 @@ export default function PlayersPage() {
           else if (h.fairway === "Right") soloStats.fairways.right++;
           else if (h.fairway === "Short") soloStats.fairways.short++;
         }
-
         soloStats.putts.total++;
         if (h.putts === 1) soloStats.putts.one++;
         else if (h.putts === 2) soloStats.putts.two++;
         else if (h.putts >= 3) soloStats.putts.threePlus++;
-
-        totalChips += h.chips;
-        totalBunker += h.bunker;
-
-        if (h.bunker > 0) {
-          soloStats.scratch.sandOpps++;
-          if (h.score <= h.par && h.score > 0) soloStats.scratch.sandSaves++;
-        }
-
+        totalChips += h.chips; totalBunker += h.bunker;
+        if (h.bunker > 0) { soloStats.scratch.sandOpps++; if (h.score <= h.par && h.score > 0) soloStats.scratch.sandSaves++; }
         if (h.par === 3 && h.score > 0) { soloStats.scratch.p3Count++; soloStats.scratch.p3Score += (h.score - h.par); }
         if (h.par === 4 && h.score > 0) { soloStats.scratch.p4Count++; soloStats.scratch.p4Score += (h.score - h.par); }
         if (h.par === 5 && h.score > 0) { soloStats.scratch.p5Count++; soloStats.scratch.p5Score += (h.score - h.par); }
-
         if (h.penalties === 0 && h.score > 0) { soloStats.scratch.cleanCount++; soloStats.scratch.cleanScore += h.score; }
         else if (h.penalties > 0 && h.score > 0) { soloStats.scratch.penaltyCount++; soloStats.scratch.penaltyScore += h.score; }
       });
     });
-
-    soloStats.avgScore = Math.round((totalScore / playerSoloRounds.length) * 10) / 10;
+    soloStats.avg9 = count9 > 0 ? Math.round((totalScore9 / count9) * 10) / 10 : 0;
+    soloStats.avg18 = count18 > 0 ? Math.round((totalScore18 / count18) * 10) / 10 : 0;
     soloStats.girPct = Math.round((totalGir / totalHoles) * 100) || 0;
     soloStats.shortGame.chips = Math.round((totalChips / playerSoloRounds.length) * 10) / 10;
     soloStats.shortGame.bunker = Math.round((totalBunker / playerSoloRounds.length) * 10) / 10;
   }
 
   const getSoloPct = (value: number, total: number) => total === 0 ? 0 : Math.round((value / total) * 100);
-
   const scramblingPct = getSoloPct(soloStats.scratch.scrambleSaves, soloStats.scratch.scrambleOpps);
   const sandSavePct = getSoloPct(soloStats.scratch.sandSaves, soloStats.scratch.sandOpps);
   const puttsPerGir = soloStats.scratch.girCount > 0 ? (soloStats.scratch.girPutts / soloStats.scratch.girCount).toFixed(1) : "0.0";
@@ -217,11 +289,13 @@ export default function PlayersPage() {
     return (
       <div className="flex flex-wrap items-center justify-center gap-1 min-h-[24px]">
         {playerArray.map((p, index) => {
-          const isP1 = p === "P1";
-          const initial = isP1 ? p1Name.charAt(0) : p2Name.charAt(0);
+          // Resolve actual player name using our reverse-engineered lookup
+          const actualName = p === "P1" ? matrixP1Name : matrixP2Name;
+          const isFirstPlayer = actualName === p1Name;
+
           return (
-            <div key={index} className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-black shadow-sm ${isP1 ? "bg-amber-600 text-white" : "bg-green-800 text-white"}`}>
-              {initial}
+            <div key={index} className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-black shadow-sm ${isFirstPlayer ? "bg-amber-600 text-white" : "bg-green-800 text-white"}`}>
+              {actualName.charAt(0)}
             </div>
           );
         })}
@@ -231,7 +305,7 @@ export default function PlayersPage() {
 
   return (
     <div className="min-h-screen bg-stone-50 p-4 pt-6 animate-in fade-in duration-500 pb-24 max-w-md mx-auto">
-      <h1 className="text-2xl font-bold text-stone-800 mb-6">Team & Player Analytics</h1>
+      <h1 className="text-2xl font-bold text-stone-800 mb-6">Performance Analytics</h1>
 
       <div className="bg-white p-1 rounded-xl shadow-sm border border-stone-200 flex mb-6">
         <button onClick={() => setView("scramble")} className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${view === "scramble" ? "bg-stone-800 text-white shadow" : "text-stone-500 hover:text-stone-800"}`}>
@@ -253,16 +327,24 @@ export default function PlayersPage() {
               <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center"><Users size={20} /></div>
               <div>
                 <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Viewing Team Stats</p>
-                <select value={scrambleTeam} onChange={(e) => setScrambleTeam(e.target.value)} className="bg-transparent font-black text-lg text-stone-800 focus:outline-none appearance-none pr-6 cursor-pointer">
-                  <option value="Dyshant & Harshal">Dyshant & Harshal</option>
-                  <option value="Anuj & Michael">Anuj & Michael</option>
+                <select 
+                  value={activeTeamSelection} 
+                  onChange={(e) => {
+                    setScrambleTeam(e.target.value);
+                    setSelectedTeamRound("Overall"); // Reset timeframe when changing teams
+                  }} 
+                  className="bg-transparent font-black text-lg text-stone-800 focus:outline-none appearance-none pr-6 cursor-pointer"
+                >
+                  {uniqueTeams.map((team) => (
+                    <option key={team} value={team}>{team}</option>
+                  ))}
                 </select>
               </div>
             </div>
             <ChevronDown size={20} className="text-stone-300 pointer-events-none" />
           </div>
 
-          {teamSessions.length === 0 ? (
+          {activeTeamMatches.length === 0 ? (
             <div className="bg-white p-8 rounded-2xl shadow-sm border border-stone-100 text-center text-stone-500">
               No scramble sessions logged for this team yet.
             </div>
@@ -275,79 +357,147 @@ export default function PlayersPage() {
 
               {scrambleSubView === "recap" ? (
                 <div className="space-y-6 animate-in fade-in">
+                  
+                  <div className="flex items-center justify-between bg-white p-3 rounded-xl shadow-sm border border-stone-100">
+                    <div className="flex items-center gap-2 text-stone-500">
+                      <Calendar size={16} />
+                      <span className="text-[10px] font-bold uppercase tracking-widest">Timeframe</span>
+                    </div>
+                    <div className="relative">
+                      <select
+                        value={selectedTeamRound}
+                        onChange={(e) => setSelectedTeamRound(e.target.value)}
+                        className="bg-transparent font-bold text-sm text-stone-800 focus:outline-none appearance-none pr-5 cursor-pointer text-right max-w-[180px] text-ellipsis overflow-hidden whitespace-nowrap"
+                      >
+                        <option value="Overall">Overall (All Matches)</option>
+                        {activeTeamMatches.map(m => (
+                          <option key={m.id} value={m.id}>{m.label}</option>
+                        ))}
+                      </select>
+                      <ChevronDown size={14} className="absolute right-0 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none" />
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-stone-900 text-white p-4 rounded-2xl shadow-sm flex flex-col justify-center relative overflow-hidden">
                       <div className="absolute -right-4 -top-4 opacity-10"><Activity size={80} /></div>
-                      <p className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1">Avg Score</p>
-                      <p className="text-4xl font-black text-amber-500">{teamAvgScore}</p>
+                      <p className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-2">Avg Score</p>
+                      <div className="flex items-center gap-4">
+                        <div>
+                          <p className="text-3xl font-black text-amber-500">{avg9 > 0 ? avg9 : "-"}</p>
+                          <p className="text-[9px] font-bold text-stone-500 mt-1 uppercase">9 Holes</p>
+                        </div>
+                        <div className="w-px h-8 bg-stone-700"></div>
+                        <div>
+                          <p className="text-3xl font-black text-amber-500">{avg18 > 0 ? avg18 : "-"}</p>
+                          <p className="text-[9px] font-bold text-stone-500 mt-1 uppercase">18 Holes</p>
+                        </div>
+                      </div>
                     </div>
+
                     <div className="bg-white p-4 rounded-2xl shadow-sm border border-stone-100 flex flex-col justify-center relative overflow-hidden">
                       <div className="absolute -right-4 -top-4 opacity-5"><Trophy size={80} className="text-green-800" /></div>
-                      <p className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Trophy size={12}/> Win Rate</p>
-                      <p className="text-3xl font-black text-stone-800">{teamWinRate}%</p>
-                      <p className="text-[10px] font-bold text-stone-400 mt-1 uppercase">Over {teamSessions.length} Matches</p>
+                      <p className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                        <Trophy size={12}/> {isFiltered ? "Match Result" : "Win Rate"}
+                      </p>
+                      {isFiltered ? (
+                        <p className={`text-2xl font-black ${teamWins > 0 ? 'text-green-600' : teamTies > 0 ? 'text-stone-500' : 'text-red-500'}`}>
+                          {teamWins > 0 ? "WIN" : teamTies > 0 ? "TIE" : "LOSS"}
+                        </p>
+                      ) : (
+                        <p className="text-3xl font-black text-stone-800">{teamWinRate}%</p>
+                      )}
+                      <p className="text-[10px] font-bold text-stone-400 mt-1 uppercase">
+                        {isFiltered ? "Head-to-Head" : `${teamWins} WINS | ${teamTies} TIES | ${totalMatchesCount} PLAYED`}
+                      </p>
                     </div>
                   </div>
 
                   <div className="bg-white p-5 rounded-2xl shadow-sm border border-stone-100">
                     <h2 className="font-bold text-stone-800 mb-5 flex items-center gap-2"><Activity size={18} className="text-green-800" /> Overall Shot Split</h2>
-                    <div className="flex items-center justify-between mb-4 px-8">
-                      <div className="flex items-center gap-2"><div className="w-3 h-3 bg-amber-600 rounded-full"></div><span className="text-xs font-bold text-stone-600">{p1Name}</span></div>
-                      <div className="flex items-center gap-2"><div className="w-3 h-3 bg-green-800 rounded-full"></div><span className="text-xs font-bold text-stone-600">{p2Name}</span></div>
-                    </div>
-                    <div className="space-y-6">
-                      {statCategories.map((cat) => {
-                        const p1Val = p1Stats[cat.id as keyof PlayerStats] || 0;
-                        const p2Val = p2Stats[cat.id as keyof PlayerStats] || 0;
-                        const p1Pct = getPct(p1Val, p2Val);
-                        
-                        return (
-                          <div key={cat.id}>
-                            <div className="flex justify-between items-center mb-2"><div className="flex items-center gap-1.5 font-bold text-stone-700 text-sm">{cat.icon} {cat.label}</div></div>
-                            <div className="flex items-center gap-3">
-                              <span className="text-xs font-black text-stone-500 w-8 text-right">{p1Pct}%</span>
-                              <div className="flex-1 h-3 bg-green-800 rounded-full overflow-hidden flex relative">
-                                <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white/50 z-10" />
-                                <div className="h-full bg-amber-600 transition-all duration-1000 ease-out" style={{ width: `${p1Pct}%` }} />
+                    
+                    {totalTeamShots === 0 ? (
+                      <div className="py-6 text-center bg-stone-50 rounded-xl border border-stone-100">
+                        <p className="text-xs font-bold text-stone-400 uppercase tracking-widest">No Shot Data Logged</p>
+                        <p className="text-[10px] text-stone-400 mt-1 px-4">This team has a total score recorded, but individual shots were not tracked for this selection.</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between mb-4 px-8">
+                          <div className="flex items-center gap-2"><div className="w-3 h-3 bg-amber-600 rounded-full"></div><span className="text-xs font-bold text-stone-600">{p1Name}</span></div>
+                          <div className="flex items-center gap-2"><div className="w-3 h-3 bg-green-800 rounded-full"></div><span className="text-xs font-bold text-stone-600">{p2Name}</span></div>
+                        </div>
+                        <div className="space-y-6">
+                          {statCategories.map((cat) => {
+                            const p1Val = p1Stats[cat.id as keyof PlayerStats] || 0;
+                            const p2Val = p2Stats[cat.id as keyof PlayerStats] || 0;
+                            const p1Pct = getPct(p1Val, p2Val);
+                            
+                            return (
+                              <div key={cat.id}>
+                                <div className="flex justify-between items-center mb-2"><div className="flex items-center gap-1.5 font-bold text-stone-700 text-sm">{cat.icon} {cat.label}</div></div>
+                                <div className="flex items-center gap-3">
+                                  <span className="text-xs font-black text-stone-500 w-8 text-right">{p1Pct}%</span>
+                                  <div className="flex-1 h-3 bg-green-800 rounded-full overflow-hidden flex relative">
+                                    <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white/50 z-10" />
+                                    <div className="h-full bg-amber-600 transition-all duration-1000 ease-out" style={{ width: `${p1Pct}%` }} />
+                                  </div>
+                                  <span className="text-xs font-black text-stone-500 w-8">{100 - p1Pct}%</span>
+                                </div>
                               </div>
-                              <span className="text-xs font-black text-stone-500 w-8">{100 - p1Pct}%</span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   <div className="bg-white p-5 rounded-2xl shadow-sm border border-stone-100 overflow-hidden">
-                    <h2 className="font-bold text-stone-800 mb-2 flex items-center gap-2"><ListOrdered size={18} className="text-stone-500" /> Latest Match Matrix</h2>
-                    <p className="text-[10px] text-stone-400 uppercase tracking-widest font-bold mb-4">From {new Date(latestTeamSession?.round_date || "").toLocaleDateString()}</p>
+                    <h2 className="font-bold text-stone-800 mb-2 flex items-center gap-2">
+                      <ListOrdered size={18} className="text-stone-500" /> 
+                      {isFiltered ? "Round Matrix" : "Latest Match Matrix"}
+                    </h2>
                     
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm text-center">
-                        <thead>
-                          <tr className="border-b border-stone-100">
-                            <th className="py-2 text-[10px] font-black text-stone-400 uppercase tracking-widest text-left">Hole</th>
-                            <th className="py-2 text-[10px] font-black text-stone-400 uppercase tracking-widest">Drive</th>
-                            <th className="py-2 text-[10px] font-black text-stone-400 uppercase tracking-widest">App</th>
-                            <th className="py-2 text-[10px] font-black text-stone-400 uppercase tracking-widest">Putt</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-stone-50">
-                          {activeMatrix.length === 0 ? (
-                            <tr><td colSpan={4} className="py-8 text-stone-400">No hole-by-hole data for this match.</td></tr>
-                          ) : (
-                            activeMatrix.map((row) => (
-                              <tr key={row.hole} className="hover:bg-stone-50 transition">
-                                <td className="py-2.5 text-xs font-black text-stone-800 text-left w-8">{row.hole}</td>
-                                <td className="py-2.5 w-14">{renderShotBadges(row.d)}</td>
-                                <td className="py-2.5 w-16">{renderShotBadges(row.a)}</td>
-                                <td className="py-2.5 w-20">{renderShotBadges(row.p)}</td>
+                    {totalTeamShots === 0 ? (
+                       <div className="py-8 text-center text-[10px] text-stone-400 uppercase tracking-widest font-bold">
+                         No hole-by-hole data available
+                       </div>
+                    ) : (
+                      <>
+                        <p className="text-[10px] text-stone-400 uppercase tracking-widest font-bold mb-4">From {new Date(activeMatrixDate || "").toLocaleDateString()}</p>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm text-center">
+                            <thead>
+                              <tr className="border-b border-stone-100">
+                                <th className="py-2 text-[10px] font-black text-stone-400 uppercase tracking-widest text-left">Hole</th>
+                                <th className="py-2 text-[10px] font-black text-stone-400 uppercase tracking-widest">Drive</th>
+                                <th className="py-2 text-[10px] font-black text-stone-400 uppercase tracking-widest">App</th>
+                                <th className="py-2 text-[10px] font-black text-stone-400 uppercase tracking-widest">Putt</th>
                               </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
+                            </thead>
+                            <tbody className="divide-y divide-stone-50">
+                              {activeMatrix.map((row) => {
+                                const isEmpty = (!row.d || row.d.length === 0) && (!row.a || row.a.length === 0) && (!row.p || row.p.length === 0);
+                                return (
+                                  <tr key={row.hole} className="hover:bg-stone-50 transition">
+                                    <td className="py-2.5 text-xs font-black text-stone-800 text-left w-8">{row.hole}</td>
+                                    {isEmpty ? (
+                                      <td colSpan={3} className="py-2.5 text-[10px] font-bold text-stone-400 uppercase tracking-widest text-center">No data logged</td>
+                                    ) : (
+                                      <>
+                                        <td className="py-2.5 w-14">{renderShotBadges(row.d)}</td>
+                                        <td className="py-2.5 w-16">{renderShotBadges(row.a)}</td>
+                                        <td className="py-2.5 w-20">{renderShotBadges(row.p)}</td>
+                                      </>
+                                    )}
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -370,17 +520,16 @@ export default function PlayersPage() {
                 <div>
                   <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">Viewing Stats For</p>
                   <select 
-                    value={soloPlayer} 
+                    value={activeSoloSelection} 
                     onChange={(e) => {
                       setSoloPlayer(e.target.value);
                       setSoloCourseFilter("All Courses"); 
                     }} 
                     className="bg-transparent font-black text-lg text-stone-800 focus:outline-none appearance-none pr-6 cursor-pointer"
                   >
-                    <option value="Harshal">Harshal</option>
-                    <option value="Dyshant">Dyshant</option>
-                    <option value="Anuj">Anuj</option>
-                    <option value="Michael">Michael</option>
+                    {uniqueSoloPlayers.map((player) => (
+                      <option key={player} value={player}>{player}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -410,7 +559,7 @@ export default function PlayersPage() {
 
           {soloStats.rounds === 0 ? (
             <div className="bg-white p-8 rounded-2xl shadow-sm border border-stone-100 text-center text-stone-500">
-              No solo rounds match this filter for {soloPlayer}.
+              No solo rounds match this filter for {activeSoloSelection}.
             </div>
           ) : (
             <>
@@ -421,16 +570,28 @@ export default function PlayersPage() {
 
               {soloSubView === "overview" ? (
                 <div className="space-y-6 animate-in fade-in">
+                  
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-green-800 text-white p-4 rounded-2xl shadow-sm flex flex-col justify-center relative overflow-hidden">
                       <div className="absolute -right-4 -top-4 opacity-10"><Activity size={80} /></div>
-                      <p className="text-xs font-bold text-green-200 uppercase tracking-wider mb-1">Avg Score</p>
-                      <p className="text-4xl font-black">{soloStats.avgScore}</p>
-                      <p className="text-[10px] font-bold text-green-400 mt-1 uppercase">Over {soloStats.rounds} Rounds</p>
+                      <p className="text-xs font-bold text-green-200 uppercase tracking-wider mb-2">Avg Score</p>
+                      <div className="flex items-center gap-4">
+                        <div>
+                          <p className="text-3xl font-black">{soloStats.avg9 > 0 ? soloStats.avg9 : "-"}</p>
+                          <p className="text-[9px] font-bold text-green-400 mt-1 uppercase">9 Holes</p>
+                        </div>
+                        <div className="w-px h-8 bg-green-700"></div>
+                        <div>
+                          <p className="text-3xl font-black">{soloStats.avg18 > 0 ? soloStats.avg18 : "-"}</p>
+                          <p className="text-[9px] font-bold text-green-400 mt-1 uppercase">18 Holes</p>
+                        </div>
+                      </div>
                     </div>
+
                     <div className="bg-white p-4 rounded-2xl shadow-sm border border-stone-100 flex flex-col justify-center">
                       <p className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Target size={12}/> GIR %</p>
                       <p className="text-3xl font-black text-stone-800">{soloStats.girPct}%</p>
+                      <p className="text-[10px] font-bold text-stone-400 mt-1 uppercase">Over {soloStats.rounds} Rounds</p>
                     </div>
                   </div>
 

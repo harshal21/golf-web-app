@@ -50,9 +50,9 @@ export default function RootLayout({
             <span className="text-[10px] mt-1 font-medium">Rankings</span>
           </Link>
 
-          <Link href="/players" className="flex flex-col items-center text-slate-400 hover:text-emerald-600 active:text-emerald-700">
+          <Link href="/analytics" className="flex flex-col items-center text-slate-400 hover:text-emerald-600 active:text-emerald-700">
             <Users size={24} />
-            <span className="text-[10px] mt-1 font-medium">Players</span>
+            <span className="text-[10px] mt-1 font-medium">Analytics</span>
           </Link>
         </nav>
 
